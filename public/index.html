@@ -1,18 +1,21 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Video Chat</title>
+  <title>Random Video Chat</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<h3 id="status">Waiting...</h3>
+<h2>🎥 Random Video & Text Chat</h2>
 
-<video id="localVideo" autoplay muted playsinline width="200"></video>
-<video id="remoteVideo" autoplay playsinline width="200"></video>
+<div class="videos">
+  <video id="localVideo" autoplay muted playsinline></video>
+  <video id="remoteVideo" autoplay playsinline></video>
+</div>
 
-<br><br>
-<button onclick="nextUser()">Next</button>
-<button onclick="toggleCamera(this)">Camera OFF</button>
+<div class="controls">
+  <button id="next">⏭ Next</button>
+</div>
 
 <script src="/socket.io/socket.io.js"></script>
 <script src="script.js"></script>
