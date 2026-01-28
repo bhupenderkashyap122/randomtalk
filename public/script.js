@@ -2,6 +2,7 @@ let socket;
 let userGender = "";
 let localStream;
 let peerConnection;
+let isInitiator = false;
 
 const localVideo = document.getElementById("localVideo");
 const partnerVideo = document.getElementById("partnerVideo");
@@ -11,160 +12,138 @@ const onlineSpan = document.getElementById("online");
 const countrySpan = document.getElementById("country");
 const statusText = document.getElementById("status");
 
-const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+const config = {
+  iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+};
 
 /* START CHAT */
 function startChat() {
-  const genderSelect = document.getElementById("gender");
-  userGender = genderSelect.value;
-
-  if (!userGender) {
-    alert("Please select your gender");
-    return;
-  }
+  userGender = document.getElementById("gender").value;
+  if (!userGender) return alert("Please select gender");
 
   document.getElementById("intro").style.display = "none";
   document.getElementById("chatApp").style.display = "block";
 
-  initSocket();
-  initCamera();
+  initCamera().then(initSocket);
   detectCountry();
-}
-
-/* SOCKET INIT */
-function initSocket() {
-  socket = io();
-
-  socket.on("onlineCount", count => {
-    onlineSpan.innerText = count;
-  });
-
-  socket.on("waiting", () => {
-    statusText.innerText = "🔍 Finding new stranger...";
-    statusText.style.color = "#ff9800";
-  });
-
-  socket.on("matched", () => {
-    statusText.innerText = "✅ Connected with a stranger";
-    statusText.style.color = "green";
-    messages.innerHTML += "<div>🤝 You are now connected</div>";
-
-    startCall();
-  });
-
-  socket.on("partnerDisconnected", () => {
-    statusText.innerText = "❌ Stranger disconnected";
-    statusText.style.color = "red";
-    messages.innerHTML += "<div>❌ Stranger disconnected</div>";
-
-    if (peerConnection) {
-      peerConnection.close();
-      peerConnection = null;
-      partnerVideo.srcObject = null;
-    }
-  });
-
-  socket.on("message", data => {
-    messages.innerHTML += `<div><b>[${data.gender}]</b> ${data.msg}</div>`;
-  });
-
-  /* WebRTC signaling */
-  socket.on("offer", async offer => {
-    if (!peerConnection) startCall();
-
-    await peerConnection.setRemoteDescription(offer);
-    const answer = await peerConnection.createAnswer();
-    await peerConnection.setLocalDescription(answer);
-    socket.emit("answer", answer);
-  });
-
-  socket.on("answer", async answer => {
-    if (!peerConnection) return;
-    await peerConnection.setRemoteDescription(answer);
-  });
-
-  socket.on("iceCandidate", async candidate => {
-    try {
-      if (peerConnection) await peerConnection.addIceCandidate(candidate);
-    } catch (e) {
-      console.error(e);
-    }
-  });
 }
 
 /* CAMERA */
 function initCamera() {
-  navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+  return navigator.mediaDevices.getUserMedia({ video: true, audio: true })
     .then(stream => {
       localStream = stream;
       localVideo.srcObject = stream;
     });
 }
 
-/* START PEER CONNECTION */
-function startCall() {
+/* SOCKET */
+function initSocket() {
+  socket = io();
+
+  socket.on("onlineCount", c => onlineSpan.innerText = c);
+
+  socket.on("waiting", () => {
+    statusText.innerText = "🔍 Finding stranger...";
+    statusText.style.color = "orange";
+  });
+
+  socket.on("matched", data => {
+    statusText.innerText = "✅ Connected";
+    statusText.style.color = "green";
+
+    isInitiator = data.role === "offer";
+    startCall(isInitiator);
+  });
+
+  socket.on("partnerDisconnected", () => {
+    statusText.innerText = "❌ Stranger left";
+    statusText.style.color = "red";
+    closeConnection();
+  });
+
+  socket.on("message", d => {
+    messages.innerHTML += `<div><b>[${d.gender}]</b> ${d.msg}</div>`;
+  });
+
+  socket.on("offer", async offer => {
+    startCall(false);
+    await peerConnection.setRemoteDescription(offer);
+    const answer = await peerConnection.createAnswer();
+    await peerConnection.setLocalDescription(answer);
+    socket.emit("answer", answer);
+  });
+
+  socket.on("answer", a => {
+    peerConnection && peerConnection.setRemoteDescription(a);
+  });
+
+  socket.on("iceCandidate", c => {
+    peerConnection && peerConnection.addIceCandidate(c);
+  });
+}
+
+/* CALL */
+function startCall(createOffer) {
   if (peerConnection) return;
 
   peerConnection = new RTCPeerConnection(config);
 
-  // Add local stream tracks
-  localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+  localStream.getTracks().forEach(t =>
+    peerConnection.addTrack(t, localStream)
+  );
 
-  // Receive partner stream
-  peerConnection.ontrack = (event) => {
-    partnerVideo.srcObject = event.streams[0];
+  peerConnection.ontrack = e => {
+    partnerVideo.srcObject = e.streams[0];
   };
 
-  // ICE candidates
-  peerConnection.onicecandidate = (event) => {
-    if (event.candidate) socket.emit("iceCandidate", event.candidate);
+  peerConnection.onicecandidate = e => {
+    if (e.candidate) socket.emit("iceCandidate", e.candidate);
   };
 
-  // Only create offer if initiating (local user)
-  if (socket.id < (socket.partner?.id || "")) { // simple trick to avoid double offers
+  if (createOffer) {
     peerConnection.createOffer()
-      .then(offer => peerConnection.setLocalDescription(offer))
+      .then(o => peerConnection.setLocalDescription(o))
       .then(() => socket.emit("offer", peerConnection.localDescription));
   }
 }
 
-/* SEND MESSAGE */
+/* MESSAGE */
 function sendMsg() {
   const msg = msgInput.value.trim();
   if (!msg) return;
 
   socket.emit("message", { msg, gender: userGender });
-  messages.innerHTML += `<div><b>[${userGender}] Me:</b> ${msg}</div>`;
+  messages.innerHTML += `<div><b>[Me]</b> ${msg}</div>`;
   msgInput.value = "";
 }
 
-/* NEXT USER */
+/* NEXT */
 function nextUser() {
+  closeConnection();
   messages.innerHTML = "";
-  statusText.innerText = "🔍 Finding new stranger...";
-  statusText.style.color = "#ff9800";
   socket.emit("next");
+}
 
+/* CLOSE */
+function closeConnection() {
   if (peerConnection) {
     peerConnection.close();
     peerConnection = null;
-    partnerVideo.srcObject = null;
   }
+  partnerVideo.srcObject = null;
 }
 
-/* COUNTRY DETECTION */
+/* COUNTRY */
 function detectCountry() {
   fetch("https://ipapi.co/json/")
-    .then(res => res.json())
-    .then(data => {
-      countrySpan.innerText = data.country_name || "Unknown";
-    });
+    .then(r => r.json())
+    .then(d => countrySpan.innerText = d.country_name || "Unknown");
 }
 
-/* TOGGLE CAMERA */
-function toggleCamera(button) {
-  const track = localVideo.srcObject?.getVideoTracks()[0];
-  if (!track) return;
+/* CAMERA TOGGLE */
+function toggleCamera(btn) {
+  const track = localStream.getVideoTracks()[0];
   track.enabled = !track.enabled;
-  button.innerText = track.enabled ? "📷 Camera OFF" : "📷 Camera ON";
+  btn.innerText = track.enabled ? "📷 Camera OFF" : "📷 Camera ON";
 }
