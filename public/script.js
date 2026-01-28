@@ -3,11 +3,11 @@ const socket = io();
 const localVideo = document.getElementById("localVideo");
 const remoteVideo = document.getElementById("remoteVideo");
 const messages = document.getElementById("messages");
-const typingText = document.getElementById("typing");
 const msgInput = document.getElementById("msg");
-const nextBtn = document.getElementById("next");
 
-let localStream, pc, isInitiator;
+let localStream;
+let pc;
+let isInitiator = false;
 
 const config = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
@@ -20,28 +20,24 @@ navigator.mediaDevices.getUserMedia({ video: true, audio: true })
   localVideo.srcObject = stream;
 });
 
-// ▶ START
-function start() {
-  const gender = document.getElementById("gender").value;
-  const country = document.getElementById("country").value;
-
-  if (!gender) return alert("Select gender");
-
-  socket.emit("join", { gender, country });
-}
-
-// 🔗 PEER
+// 🔗 CREATE PEER
 function createPeer() {
   pc = new RTCPeerConnection(config);
 
-  localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+  localStream.getTracks().forEach(track =>
+    pc.addTrack(track, localStream)
+  );
 
-  pc.ontrack = e => remoteVideo.srcObject = e.streams[0];
+  pc.ontrack = e => {
+    remoteVideo.srcObject = e.streams[0];
+  };
+
   pc.onicecandidate = e => {
     if (e.candidate) socket.emit("signal", { candidate: e.candidate });
   };
 }
 
+// 🔥 MATCHED
 socket.on("matched", async data => {
   cleanup();
   isInitiator = data.initiator;
@@ -56,6 +52,8 @@ socket.on("matched", async data => {
 
 // 📡 SIGNAL
 socket.on("signal", async data => {
+  if (!pc) createPeer();
+
   if (data.sdp) {
     await pc.setRemoteDescription(data.sdp);
     if (data.sdp.type === "offer") {
@@ -67,7 +65,7 @@ socket.on("signal", async data => {
   if (data.candidate) await pc.addIceCandidate(data.candidate);
 });
 
-// 💬 CHAT
+// 💬 TEXT CHAT
 function sendMsg() {
   if (!msgInput.value) return;
   messages.innerHTML += `<div><b>You:</b> ${msgInput.value}</div>`;
@@ -79,25 +77,13 @@ socket.on("message", msg => {
   messages.innerHTML += `<div><b>Stranger:</b> ${msg}</div>`;
 });
 
-// ✍️ TYPING
-msgInput.oninput = () => socket.emit("typing");
-
-socket.on("typing", () => {
-  typingText.innerText = "Stranger typing...";
-  setTimeout(() => typingText.innerText = "", 800);
-});
-
 // ⏭ NEXT
-nextBtn.onclick = () => {
+function nextUser() {
   cleanup();
   socket.emit("next");
-};
+}
 
-// 🔄 AUTO RECONNECT
-socket.on("partnerDisconnected", () => {
-  cleanup();
-  socket.emit("next");
-});
+socket.on("partnerDisconnected", cleanup);
 
 function cleanup() {
   if (pc) pc.close();
