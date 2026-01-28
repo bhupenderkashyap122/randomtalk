@@ -20,10 +20,14 @@ navigator.mediaDevices.getUserMedia({ video: true, audio: true })
   localVideo.srcObject = stream;
 });
 
+// ▶ START
 function start() {
   const gender = document.getElementById("gender").value;
+  const country = document.getElementById("country").value;
+
   if (!gender) return alert("Select gender");
-  socket.emit("join", gender);
+
+  socket.emit("join", { gender, country });
 }
 
 // 🔗 PEER
@@ -63,12 +67,11 @@ socket.on("signal", async data => {
   if (data.candidate) await pc.addIceCandidate(data.candidate);
 });
 
-// 💬 TEXT CHAT
+// 💬 CHAT
 function sendMsg() {
-  const msg = msgInput.value;
-  if (!msg) return;
-  messages.innerHTML += `<div><b>You:</b> ${msg}</div>`;
-  socket.emit("message", msg);
+  if (!msgInput.value) return;
+  messages.innerHTML += `<div><b>You:</b> ${msgInput.value}</div>`;
+  socket.emit("message", msgInput.value);
   msgInput.value = "";
 }
 
@@ -80,8 +83,8 @@ socket.on("message", msg => {
 msgInput.oninput = () => socket.emit("typing");
 
 socket.on("typing", () => {
-  typingText.innerText = "Stranger is typing...";
-  setTimeout(() => typingText.innerText = "", 1000);
+  typingText.innerText = "Stranger typing...";
+  setTimeout(() => typingText.innerText = "", 800);
 });
 
 // ⏭ NEXT
@@ -90,7 +93,11 @@ nextBtn.onclick = () => {
   socket.emit("next");
 };
 
-socket.on("partnerDisconnected", cleanup);
+// 🔄 AUTO RECONNECT
+socket.on("partnerDisconnected", () => {
+  cleanup();
+  socket.emit("next");
+});
 
 function cleanup() {
   if (pc) pc.close();
