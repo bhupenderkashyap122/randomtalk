@@ -3,26 +3,25 @@
 <head>
   <title>Random Video Chat</title>
   <style>
-    body { text-align:center; font-family:Arial }
-    video { width:300px; height:220px; background:black; margin:10px }
-    #chat { width:620px; margin:auto }
-    #messages { height:120px; overflow:auto; border:1px solid #ccc; margin-bottom:5px }
+    body { font-family: Arial; text-align: center; }
+    video { width: 300px; height: 220px; background: black; margin: 5px; }
+    #messages { height: 120px; overflow: auto; border: 1px solid #ccc; margin: 10px auto; width: 620px; }
   </style>
 </head>
 <body>
 
 <h2>🎥 Random Video + Text Chat</h2>
+<p id="status">🔍 Searching for user...</p>
 
 <video id="localVideo" autoplay muted playsinline></video>
 <video id="remoteVideo" autoplay playsinline></video>
 
-<div id="chat">
-  <div id="messages"></div>
-  <input id="msg" placeholder="Type message..." />
-  <button onclick="sendMsg()">Send</button>
-</div>
+<div id="messages"></div>
 
-<br>
+<input id="msg" placeholder="Type message..." />
+<button onclick="sendMsg()">Send</button>
+
+<br><br>
 <button onclick="nextUser()">Next</button>
 
 <script src="/socket.io/socket.io.js"></script>
