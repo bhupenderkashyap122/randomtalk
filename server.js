@@ -5,7 +5,7 @@ const io = require("socket.io")(http);
 
 app.use(express.static("public"));
 
-let waitingUser = null;
+let waitingUsers = [];
 let onlineUsers = 0;
 
 io.on("connection", (socket) => {
@@ -15,26 +15,35 @@ io.on("connection", (socket) => {
 
   socket.partner = null;
 
-  // 🟡 PAIRING LOGIC
-  if (waitingUser && waitingUser.id !== socket.id) {
-    socket.partner = waitingUser;
-    waitingUser.partner = socket;
+  function tryMatch() {
+    if (waitingUsers.length > 0) {
+      const partner = waitingUsers.shift();
 
-    socket.emit("matched");
-    waitingUser.emit("matched");
+      if (!partner || partner.disconnected) {
+        tryMatch();
+        return;
+      }
 
-    waitingUser = null;
-  } else {
-    waitingUser = socket;
-    socket.emit("waiting");
+      socket.partner = partner;
+      partner.partner = socket;
+
+      // 🔥 ROLE DECIDED HERE
+      socket.emit("matched", { role: "offer" });
+      partner.emit("matched", { role: "answer" });
+
+      console.log("Matched:", socket.id, partner.id);
+    } else {
+      waitingUsers.push(socket);
+      socket.emit("waiting");
+    }
   }
 
-  // 💬 MESSAGE FORWARDING
-  socket.on("message", (data) => {
+  tryMatch();
+
+  socket.on("message", data => {
     if (socket.partner) socket.partner.emit("message", data);
   });
 
-  // 🔄 NEXT USER
   socket.on("next", () => {
     if (socket.partner) {
       socket.partner.emit("partnerDisconnected");
@@ -42,29 +51,15 @@ io.on("connection", (socket) => {
       socket.partner = null;
     }
 
-    if (waitingUser && waitingUser.id === socket.id) waitingUser = null;
-
-    if (waitingUser) {
-      socket.partner = waitingUser;
-      waitingUser.partner = socket;
-
-      socket.emit("matched");
-      waitingUser.emit("matched");
-
-      waitingUser = null;
-    } else {
-      waitingUser = socket;
-      socket.emit("waiting");
-    }
+    waitingUsers = waitingUsers.filter(u => u.id !== socket.id);
+    tryMatch();
   });
 
-  // ❌ DISCONNECT
   socket.on("disconnect", () => {
-    console.log("User disconnected:", socket.id);
     onlineUsers--;
     io.emit("onlineCount", onlineUsers);
 
-    if (waitingUser && waitingUser.id === socket.id) waitingUser = null;
+    waitingUsers = waitingUsers.filter(u => u.id !== socket.id);
 
     if (socket.partner) {
       socket.partner.emit("partnerDisconnected");
@@ -72,21 +67,12 @@ io.on("connection", (socket) => {
     }
   });
 
-  // 🌐 WEBRTC SIGNALING
-  socket.on("offer", data => {
-    if (socket.partner) socket.partner.emit("offer", data);
-  });
-
-  socket.on("answer", data => {
-    if (socket.partner) socket.partner.emit("answer", data);
-  });
-
-  socket.on("iceCandidate", data => {
-    if (socket.partner) socket.partner.emit("iceCandidate", data);
-  });
+  // 🔊 WEBRTC SIGNALS
+  socket.on("offer", d => socket.partner && socket.partner.emit("offer", d));
+  socket.on("answer", d => socket.partner && socket.partner.emit("answer", d));
+  socket.on("iceCandidate", d => socket.partner && socket.partner.emit("iceCandidate", d));
 });
 
-const PORT = 3000;
-http.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+http.listen(3000, () => {
+  console.log("Server running on http://localhost:3000");
 });
