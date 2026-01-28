@@ -1,23 +1,25 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <title>Random Video Chat</title>
-  <link rel="stylesheet" href="style.css">
-</head>
-<body>
+<select id="gender">
+  <option value="">Select Gender</option>
+  <option value="male">Male</option>
+  <option value="female">Female</option>
+  <option value="any">Any</option>
+</select>
 
-<h2>🎥 Random Video & Text Chat</h2>
+<button onclick="start()">Start</button>
 
 <div class="videos">
   <video id="localVideo" autoplay muted playsinline></video>
   <video id="remoteVideo" autoplay playsinline></video>
 </div>
 
-<div class="controls">
-  <button id="next">⏭ Next</button>
+<div id="chat">
+  <div id="messages"></div>
+  <p id="typing"></p>
+  <input id="msg" placeholder="Type message..." />
+  <button onclick="sendMsg()">Send</button>
 </div>
+
+<button id="next">Next</button>
 
 <script src="/socket.io/socket.io.js"></script>
 <script src="script.js"></script>
-</body>
-</html>
