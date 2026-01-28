@@ -5,50 +5,53 @@ const io = require("socket.io")(http);
 
 app.use(express.static("public"));
 
-let waiting = null;
+let waitingUser = null;
 
 io.on("connection", socket => {
   socket.partner = null;
 
-  // 🔗 Pair users
-  if (waiting) {
-    socket.partner = waiting;
-    waiting.partner = socket;
+  // 🔗 MATCHING
+  if (waitingUser) {
+    socket.partner = waitingUser;
+    waitingUser.partner = socket;
 
     socket.emit("matched", { initiator: true });
-    waiting.emit("matched", { initiator: false });
+    waitingUser.emit("matched", { initiator: false });
 
-    waiting = null;
+    waitingUser = null;
   } else {
-    waiting = socket;
+    waitingUser = socket;
     socket.emit("waiting");
   }
 
-  // 🔁 NEXT BUTTON
+  // ⏭ NEXT
   socket.on("next", () => {
+    // break current connection
     if (socket.partner) {
       socket.partner.emit("partnerDisconnected");
       socket.partner.partner = null;
       socket.partner = null;
     }
 
-    if (waiting === socket) waiting = null;
+    // remove from waiting if needed
+    if (waitingUser === socket) waitingUser = null;
 
-    if (waiting) {
-      socket.partner = waiting;
-      waiting.partner = socket;
+    // re-match
+    if (waitingUser) {
+      socket.partner = waitingUser;
+      waitingUser.partner = socket;
 
       socket.emit("matched", { initiator: true });
-      waiting.emit("matched", { initiator: false });
+      waitingUser.emit("matched", { initiator: false });
 
-      waiting = null;
+      waitingUser = null;
     } else {
-      waiting = socket;
+      waitingUser = socket;
       socket.emit("waiting");
     }
   });
 
-  // 📡 SIGNALING
+  // 📡 SIGNAL
   socket.on("signal", data => {
     if (socket.partner) {
       socket.partner.emit("signal", data);
@@ -57,7 +60,7 @@ io.on("connection", socket => {
 
   // ❌ DISCONNECT
   socket.on("disconnect", () => {
-    if (waiting === socket) waiting = null;
+    if (waitingUser === socket) waitingUser = null;
 
     if (socket.partner) {
       socket.partner.emit("partnerDisconnected");
