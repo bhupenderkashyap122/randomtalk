@@ -5,35 +5,23 @@ const io = require("socket.io")(http);
 
 app.use(express.static("public"));
 
-let waitingUser = null;
-let onlineUsers = 0;
+let waiting = null;
 
-io.on("connection", (socket) => {
-  onlineUsers++;
-  io.emit("onlineCount", onlineUsers);
+io.on("connection", socket => {
 
-  socket.partner = null;
-
-  // 🔗 MATCHING
-  if (waitingUser && waitingUser.id !== socket.id) {
-    socket.partner = waitingUser;
-    waitingUser.partner = socket;
+  if (waiting) {
+    socket.partner = waiting;
+    waiting.partner = socket;
 
     socket.emit("matched");
-    waitingUser.emit("matched");
+    waiting.emit("matched");
 
-    waitingUser = null;
+    waiting = null;
   } else {
-    waitingUser = socket;
+    waiting = socket;
     socket.emit("waiting");
   }
 
-  // 💬 CHAT
-  socket.on("message", (data) => {
-    if (socket.partner) socket.partner.emit("message", data);
-  });
-
-  // 🔁 NEXT USER
   socket.on("next", () => {
     if (socket.partner) {
       socket.partner.emit("partnerDisconnected");
@@ -41,46 +29,30 @@ io.on("connection", (socket) => {
       socket.partner = null;
     }
 
-    if (waitingUser && waitingUser.id === socket.id) waitingUser = null;
+    if (waiting === socket) waiting = null;
 
-    if (waitingUser) {
-      socket.partner = waitingUser;
-      waitingUser.partner = socket;
+    if (waiting) {
+      socket.partner = waiting;
+      waiting.partner = socket;
 
       socket.emit("matched");
-      waitingUser.emit("matched");
+      waiting.emit("matched");
 
-      waitingUser = null;
+      waiting = null;
     } else {
-      waitingUser = socket;
+      waiting = socket;
       socket.emit("waiting");
     }
   });
 
-  // 🌐 WEBRTC SIGNALING
-  socket.on("ready", () => {
-    if (socket.partner) socket.partner.emit("makeOffer");
+  socket.on("signal", data => {
+    if (socket.partner) {
+      socket.partner.emit("signal", data);
+    }
   });
 
-  socket.on("offer", (data) => {
-    if (socket.partner) socket.partner.emit("offer", data);
-  });
-
-  socket.on("answer", (data) => {
-    if (socket.partner) socket.partner.emit("answer", data);
-  });
-
-  socket.on("iceCandidate", (data) => {
-    if (socket.partner) socket.partner.emit("iceCandidate", data);
-  });
-
-  // ❌ DISCONNECT
   socket.on("disconnect", () => {
-    onlineUsers--;
-    io.emit("onlineCount", onlineUsers);
-
-    if (waitingUser && waitingUser.id === socket.id) waitingUser = null;
-
+    if (waiting === socket) waiting = null;
     if (socket.partner) {
       socket.partner.emit("partnerDisconnected");
       socket.partner.partner = null;
