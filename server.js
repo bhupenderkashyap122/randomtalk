@@ -1,89 +1,61 @@
 const express = require("express");
-const http = require("http");
-const { Server } = require("socket.io");
-const geoip = require("geoip-lite");
-
 const app = express();
-const server = http.createServer(app);
-const io = new Server(server);
+const http = require("http").createServer(app);
+const io = require("socket.io")(http);
 
 app.use(express.static("public"));
 
-let waitingUsers = [];
+let waiting = null;
 
-// Pair users safely
-function pairUsers(socket) {
-  const partnerIndex = waitingUsers.findIndex(u => u !== socket);
+io.on("connection", socket => {
+  socket.partner = null;
 
-  if (partnerIndex !== -1) {
-    const partner = waitingUsers[partnerIndex];
-    socket.partner = partner;
-    partner.partner = socket;
+  if (waiting) {
+    socket.partner = waiting;
+    waiting.partner = socket;
 
-    socket.emit("matched", { location: partner.location || "Unknown" });
-    partner.emit("matched", { location: socket.location || "Unknown" });
+    socket.emit("matched", { initiator: true });
+    waiting.emit("matched", { initiator: false });
 
-    waitingUsers.splice(partnerIndex, 1);
+    waiting = null;
   } else {
-    if (!waitingUsers.includes(socket)) waitingUsers.push(socket);
+    waiting = socket;
+    socket.emit("waiting");
   }
-}
 
-io.on("connection", (socket) => {
-  const ip =
-    socket.handshake.headers["x-forwarded-for"] ||
-    socket.handshake.address;
-
-  const testIP = (ip === "::1" || ip === "127.0.0.1") ? "8.8.8.8" : ip;
-  const geo = geoip.lookup(testIP);
-
-  socket.location = geo
-    ? `${geo.city || "Unknown city"}, ${geo.country || "Unknown country"}`
-    : "Unknown location";
-
-  console.log("User connected:", socket.id, socket.location);
-
-  pairUsers(socket);
-
-  // Text + Image messages
-  socket.on("message", (msg) => {
-    if (socket.partner) socket.partner.emit("message", msg);
+  socket.on("signal", data => {
+    if (socket.partner) socket.partner.emit("signal", data);
   });
 
-  // Next button
   socket.on("next", () => {
     if (socket.partner) {
-      socket.partner.emit("message", { type: "text", content: "❌ Stranger disconnected" });
+      socket.partner.emit("partnerDisconnected");
       socket.partner.partner = null;
+      socket.partner = null;
     }
-    socket.partner = null;
-    pairUsers(socket);
+
+    if (waiting === socket) waiting = null;
+
+    if (waiting) {
+      socket.partner = waiting;
+      waiting.partner = socket;
+
+      socket.emit("matched", { initiator: true });
+      waiting.emit("matched", { initiator: false });
+
+      waiting = null;
+    } else {
+      waiting = socket;
+      socket.emit("waiting");
+    }
   });
 
-  // Disconnect
   socket.on("disconnect", () => {
-    if (socket.partner) {
-      socket.partner.emit("message", { type: "text", content: "❌ Stranger disconnected" });
-      socket.partner.partner = null;
-    }
-    waitingUsers = waitingUsers.filter(u => u !== socket);
-    console.log("User disconnected:", socket.id);
-  });
-
-  // WebRTC signaling
-  socket.on("webrtc-offer", (data) => {
-    if(socket.partner) socket.partner.emit("webrtc-offer", data);
-  });
-
-  socket.on("webrtc-answer", (data) => {
-    if(socket.partner) socket.partner.emit("webrtc-answer", data);
-  });
-
-  socket.on("webrtc-ice-candidate", (data) => {
-    if(socket.partner) socket.partner.emit("webrtc-ice-candidate", data);
+    if (waiting === socket) waiting = null;
+    if (socket.partner) socket.partner.emit("partnerDisconnected");
   });
 });
 
-server.listen(3000, () => {
-  console.log("Server running on http://localhost:3000");
-});
+http.listen(3000, () =>
+  console.log("Server running http://localhost:3000")
+);
