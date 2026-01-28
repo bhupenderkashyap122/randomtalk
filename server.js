@@ -5,45 +5,35 @@ const io = require("socket.io")(http);
 
 app.use(express.static("public"));
 
-let waitingUsers = [];
+let waitingUser = null;
 let onlineUsers = 0;
 
 io.on("connection", (socket) => {
   onlineUsers++;
   io.emit("onlineCount", onlineUsers);
-  console.log("User connected:", socket.id);
 
   socket.partner = null;
 
-  function tryMatch() {
-    if (waitingUsers.length > 0) {
-      const partner = waitingUsers.shift();
+  // 🔗 MATCHING
+  if (waitingUser && waitingUser.id !== socket.id) {
+    socket.partner = waitingUser;
+    waitingUser.partner = socket;
 
-      if (!partner || partner.disconnected) {
-        tryMatch();
-        return;
-      }
+    socket.emit("matched");
+    waitingUser.emit("matched");
 
-      socket.partner = partner;
-      partner.partner = socket;
-
-      // 🔥 ROLE DECIDED HERE
-      socket.emit("matched", { role: "offer" });
-      partner.emit("matched", { role: "answer" });
-
-      console.log("Matched:", socket.id, partner.id);
-    } else {
-      waitingUsers.push(socket);
-      socket.emit("waiting");
-    }
+    waitingUser = null;
+  } else {
+    waitingUser = socket;
+    socket.emit("waiting");
   }
 
-  tryMatch();
-
-  socket.on("message", data => {
+  // 💬 CHAT
+  socket.on("message", (data) => {
     if (socket.partner) socket.partner.emit("message", data);
   });
 
+  // 🔁 NEXT USER
   socket.on("next", () => {
     if (socket.partner) {
       socket.partner.emit("partnerDisconnected");
@@ -51,26 +41,51 @@ io.on("connection", (socket) => {
       socket.partner = null;
     }
 
-    waitingUsers = waitingUsers.filter(u => u.id !== socket.id);
-    tryMatch();
+    if (waitingUser && waitingUser.id === socket.id) waitingUser = null;
+
+    if (waitingUser) {
+      socket.partner = waitingUser;
+      waitingUser.partner = socket;
+
+      socket.emit("matched");
+      waitingUser.emit("matched");
+
+      waitingUser = null;
+    } else {
+      waitingUser = socket;
+      socket.emit("waiting");
+    }
   });
 
+  // 🌐 WEBRTC SIGNALING
+  socket.on("ready", () => {
+    if (socket.partner) socket.partner.emit("makeOffer");
+  });
+
+  socket.on("offer", (data) => {
+    if (socket.partner) socket.partner.emit("offer", data);
+  });
+
+  socket.on("answer", (data) => {
+    if (socket.partner) socket.partner.emit("answer", data);
+  });
+
+  socket.on("iceCandidate", (data) => {
+    if (socket.partner) socket.partner.emit("iceCandidate", data);
+  });
+
+  // ❌ DISCONNECT
   socket.on("disconnect", () => {
     onlineUsers--;
     io.emit("onlineCount", onlineUsers);
 
-    waitingUsers = waitingUsers.filter(u => u.id !== socket.id);
+    if (waitingUser && waitingUser.id === socket.id) waitingUser = null;
 
     if (socket.partner) {
       socket.partner.emit("partnerDisconnected");
       socket.partner.partner = null;
     }
   });
-
-  // 🔊 WEBRTC SIGNALS
-  socket.on("offer", d => socket.partner && socket.partner.emit("offer", d));
-  socket.on("answer", d => socket.partner && socket.partner.emit("answer", d));
-  socket.on("iceCandidate", d => socket.partner && socket.partner.emit("iceCandidate", d));
 });
 
 http.listen(3000, () => {
