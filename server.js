@@ -8,13 +8,15 @@ app.use(express.static("public"));
 let waiting = null;
 
 io.on("connection", socket => {
+  socket.partner = null;
 
+  // 🔗 Pair users
   if (waiting) {
     socket.partner = waiting;
     waiting.partner = socket;
 
-    socket.emit("matched");
-    waiting.emit("matched");
+    socket.emit("matched", { initiator: true });
+    waiting.emit("matched", { initiator: false });
 
     waiting = null;
   } else {
@@ -22,6 +24,7 @@ io.on("connection", socket => {
     socket.emit("waiting");
   }
 
+  // 🔁 NEXT BUTTON
   socket.on("next", () => {
     if (socket.partner) {
       socket.partner.emit("partnerDisconnected");
@@ -35,8 +38,8 @@ io.on("connection", socket => {
       socket.partner = waiting;
       waiting.partner = socket;
 
-      socket.emit("matched");
-      waiting.emit("matched");
+      socket.emit("matched", { initiator: true });
+      waiting.emit("matched", { initiator: false });
 
       waiting = null;
     } else {
@@ -45,14 +48,17 @@ io.on("connection", socket => {
     }
   });
 
+  // 📡 SIGNALING
   socket.on("signal", data => {
     if (socket.partner) {
       socket.partner.emit("signal", data);
     }
   });
 
+  // ❌ DISCONNECT
   socket.on("disconnect", () => {
     if (waiting === socket) waiting = null;
+
     if (socket.partner) {
       socket.partner.emit("partnerDisconnected");
       socket.partner.partner = null;
