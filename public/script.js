@@ -1,44 +1,67 @@
 const socket = io();
 
-let localStream;
-let pc;
-
 const localVideo = document.getElementById("localVideo");
 const remoteVideo = document.getElementById("remoteVideo");
-const statusText = document.getElementById("status");
+const nextBtn = document.getElementById("next");
 
-const pcConfig = {
+let localStream;
+let pc;
+let isInitiator = false;
+
+const config = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
 };
 
-// 🎥 CAMERA START
-navigator.mediaDevices.getUserMedia({ video: true, audio: false })
-  .then(stream => {
-    localStream = stream;
-    localVideo.srcObject = stream;
-  })
-  .catch(err => alert("Camera error: " + err));
+// 🎥 Get Camera
+async function startCamera() {
+  localStream = await navigator.mediaDevices.getUserMedia({
+    video: true,
+    audio: true
+  });
+  localVideo.srcObject = localStream;
+}
 
-// 🔗 SOCKET EVENTS
-socket.on("waiting", () => {
-  statusText.innerText = "Searching...";
+startCamera();
+
+// 🔗 Create Peer
+function createPeer() {
+  pc = new RTCPeerConnection(config);
+
+  localStream.getTracks().forEach(track => {
+    pc.addTrack(track, localStream);
+  });
+
+  pc.ontrack = e => {
+    remoteVideo.srcObject = e.streams[0];
+  };
+
+  pc.onicecandidate = e => {
+    if (e.candidate) {
+      socket.emit("signal", { candidate: e.candidate });
+    }
+  };
+}
+
+// 🔥 Matched
+socket.on("matched", async data => {
+  isInitiator = data.initiator;
+
+  createPeer();
+
+  if (isInitiator) {
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    socket.emit("signal", { sdp: offer });
+  }
 });
 
-socket.on("matched", () => {
-  statusText.innerText = "Connected";
-  startPeer(true);
-});
-
-socket.on("partnerDisconnected", () => {
-  statusText.innerText = "Partner left";
-  closePeer();
-});
-
+// 📡 Signaling
 socket.on("signal", async data => {
-  if (!pc) startPeer(false);
+  if (!pc) createPeer();
 
   if (data.sdp) {
     await pc.setRemoteDescription(data.sdp);
+
     if (data.sdp.type === "offer") {
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
@@ -51,48 +74,22 @@ socket.on("signal", async data => {
   }
 });
 
-// 🔧 PEER
-function startPeer(createOffer) {
-  pc = new RTCPeerConnection(pcConfig);
+// ⏭ NEXT BUTTON
+nextBtn.onclick = () => {
+  closePeer();
+  socket.emit("next");
+};
 
-  localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+// ❌ Partner Left
+socket.on("partnerDisconnected", () => {
+  closePeer();
+});
 
-  pc.ontrack = e => {
-    remoteVideo.srcObject = e.streams[0];
-  };
-
-  pc.onicecandidate = e => {
-    if (e.candidate) {
-      socket.emit("signal", { candidate: e.candidate });
-    }
-  };
-
-  if (createOffer) {
-    pc.createOffer().then(offer => {
-      pc.setLocalDescription(offer);
-      socket.emit("signal", { sdp: offer });
-    });
-  }
-}
-
-// ❌ CLOSE
+// 🧹 CLEANUP (VERY IMPORTANT)
 function closePeer() {
   if (pc) {
     pc.close();
     pc = null;
   }
   remoteVideo.srcObject = null;
-}
-
-// ⏭ NEXT
-function nextUser() {
-  closePeer();
-  socket.emit("next");
-}
-
-// 📷 CAMERA TOGGLE
-function toggleCamera(btn) {
-  const track = localStream.getVideoTracks()[0];
-  track.enabled = !track.enabled;
-  btn.innerText = track.enabled ? "Camera OFF" : "Camera ON";
 }
