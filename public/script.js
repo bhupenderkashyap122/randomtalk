@@ -4,15 +4,15 @@ const localVideo = document.getElementById("localVideo");
 const remoteVideo = document.getElementById("remoteVideo");
 const nextBtn = document.getElementById("next");
 
-let localStream;
-let pc;
+let localStream = null;
+let peer = null;
 let isInitiator = false;
 
 const config = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
 };
 
-// 🎥 Get Camera
+// 🎥 CAMERA
 async function startCamera() {
   localStream = await navigator.mediaDevices.getUserMedia({
     video: true,
@@ -20,76 +20,78 @@ async function startCamera() {
   });
   localVideo.srcObject = localStream;
 }
-
 startCamera();
 
-// 🔗 Create Peer
+// 🔗 CREATE PEER
 function createPeer() {
-  pc = new RTCPeerConnection(config);
+  peer = new RTCPeerConnection(config);
 
   localStream.getTracks().forEach(track => {
-    pc.addTrack(track, localStream);
+    peer.addTrack(track, localStream);
   });
 
-  pc.ontrack = e => {
+  peer.ontrack = e => {
     remoteVideo.srcObject = e.streams[0];
   };
 
-  pc.onicecandidate = e => {
+  peer.onicecandidate = e => {
     if (e.candidate) {
       socket.emit("signal", { candidate: e.candidate });
     }
   };
 }
 
-// 🔥 Matched
+// 🔥 MATCHED
 socket.on("matched", async data => {
+  cleanup(); // 🔴 VERY IMPORTANT
   isInitiator = data.initiator;
 
   createPeer();
 
   if (isInitiator) {
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
+    const offer = await peer.createOffer();
+    await peer.setLocalDescription(offer);
     socket.emit("signal", { sdp: offer });
   }
 });
 
-// 📡 Signaling
+// 📡 SIGNAL
 socket.on("signal", async data => {
-  if (!pc) createPeer();
+  if (!peer) createPeer();
 
   if (data.sdp) {
-    await pc.setRemoteDescription(data.sdp);
+    await peer.setRemoteDescription(data.sdp);
 
     if (data.sdp.type === "offer") {
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
+      const answer = await peer.createAnswer();
+      await peer.setLocalDescription(answer);
       socket.emit("signal", { sdp: answer });
     }
   }
 
   if (data.candidate) {
-    await pc.addIceCandidate(data.candidate);
+    await peer.addIceCandidate(data.candidate);
   }
 });
 
 // ⏭ NEXT BUTTON
 nextBtn.onclick = () => {
-  closePeer();
+  cleanup();
   socket.emit("next");
 };
 
-// ❌ Partner Left
+// ❌ PARTNER LEFT
 socket.on("partnerDisconnected", () => {
-  closePeer();
+  cleanup();
 });
 
-// 🧹 CLEANUP (VERY IMPORTANT)
-function closePeer() {
-  if (pc) {
-    pc.close();
-    pc = null;
+// 🧹 CLEANUP (NEXT FIX)
+function cleanup() {
+  if (peer) {
+    peer.ontrack = null;
+    peer.onicecandidate = null;
+    peer.close();
+    peer = null;
   }
   remoteVideo.srcObject = null;
 }
