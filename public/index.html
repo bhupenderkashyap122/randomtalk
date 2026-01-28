@@ -1,63 +1,18 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <title>Random Chat</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="stylesheet" href="style.css">
+  <title>Video Chat</title>
 </head>
 <body>
 
-<!-- INTRO SCREEN -->
-<div id="intro">
-  <h1>💬 Meet Someone New in Seconds!</h1>
-  <p>
-    Jump into a live chat with a stranger from anywhere in the world.
-    No sign-up, totally random, totally fun.
-  </p>
+<h3 id="status">Waiting...</h3>
 
-  <select id="gender">
-    <option value="">Select Your Gender</option>
-    <option value="Male">Male</option>
-    <option value="Female">Female</option>
-  </select>
+<video id="localVideo" autoplay muted playsinline width="200"></video>
+<video id="remoteVideo" autoplay playsinline width="200"></video>
 
-  <br><br>
-  <button onclick="startChat()">Start Chat</button>
-</div>
-
-<!-- CHAT SCREEN -->
-<div id="chatApp" style="display:none;">
-
-  <h2>🎥 Random Video & Text Chat</h2>
-
-  <p>
-    🟢 Online Users: <span id="online">0</span><br>
-    🌍 Country: <span id="country">Detecting...</span>
-  </p>
-
-  <p id="status">🔍 Finding new stranger...</p>
-
-  <div class="videos">
-    <video id="localVideo" autoplay muted playsinline></video>
-    <video id="remoteVideo" autoplay playsinline></video>
-  </div>
-
-  <div id="controls">
-    <button onclick="toggleCamera()">📷 Camera OFF</button>
-    <button onclick="nextUser()">🔄 Next</button>
-  </div>
-
-  <div id="chat">
-    <div id="messages"></div>
-
-    <div style="display:flex;gap:5px;">
-      <input id="msg" placeholder="Type message..." style="flex:1;">
-      <button onclick="sendMsg()">Send</button>
-    </div>
-  </div>
-
-</div>
+<br><br>
+<button onclick="nextUser()">Next</button>
+<button onclick="toggleCamera(this)">Camera OFF</button>
 
 <script src="/socket.io/socket.io.js"></script>
 <script src="script.js"></script>
