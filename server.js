@@ -1,58 +1,102 @@
-const express = require("express");
-const app = express();
-const http = require("http").createServer(app);
-const io = require("socket.io")(http);
+const socket = io();
 
-app.use(express.static("public"));
+const localVideo = document.getElementById("localVideo");
+const remoteVideo = document.getElementById("remoteVideo");
+const messages = document.getElementById("messages");
+const msgInput = document.getElementById("msg");
 
-let waitingUser = null;
+let localStream;
+let pc = null;
+let isInitiator = false;
 
-io.on("connection", socket => {
-  socket.partner = null;
+const config = {
+  iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+};
 
-  // 🔗 RANDOM MATCH
-  if (waitingUser) {
-    socket.partner = waitingUser;
-    waitingUser.partner = socket;
-
-    socket.emit("matched", { initiator: true });
-    waitingUser.emit("matched", { initiator: false });
-
-    waitingUser = null;
-  } else {
-    waitingUser = socket;
-    socket.emit("waiting");
-  }
-
-  // 📡 WebRTC signaling
-  socket.on("signal", data => {
-    if (socket.partner) socket.partner.emit("signal", data);
-  });
-
-  // 💬 Text chat
-  socket.on("message", msg => {
-    if (socket.partner) socket.partner.emit("message", msg);
-  });
-
-  // ⏭ NEXT
-  socket.on("next", () => {
-    if (socket.partner) {
-      socket.partner.emit("partnerDisconnected");
-      socket.partner.partner = null;
-      socket.partner = null;
-    }
-    if (waitingUser === socket) waitingUser = null;
-
-    waitingUser = socket;
-    socket.emit("waiting");
-  });
-
-  socket.on("disconnect", () => {
-    if (waitingUser === socket) waitingUser = null;
-    if (socket.partner) socket.partner.emit("partnerDisconnected");
-  });
+// 🎥 CAMERA
+navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+.then(stream => {
+  localStream = stream;
+  localVideo.srcObject = stream;
 });
 
-http.listen(3000, () =>
-  console.log("Server running at http://localhost:3000")
-);
+// 🔗 CREATE PEER
+function createPeer() {
+  pc = new RTCPeerConnection(config);
+
+  localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+
+  pc.ontrack = e => {
+    remoteVideo.srcObject = e.streams[0];
+  };
+
+  pc.onicecandidate = e => {
+    if (e.candidate) socket.emit("signal", { candidate: e.candidate });
+  };
+}
+
+// 🔥 MATCHED
+socket.on("matched", async data => {
+  cleanup();
+  isInitiator = data.initiator;
+
+  createPeer();
+
+  if (isInitiator) {
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    socket.emit("signal", { sdp: offer });
+  }
+});
+
+// 📡 SIGNAL
+socket.on("signal", async data => {
+  if (!pc) createPeer();
+
+  if (data.sdp) {
+    await pc.setRemoteDescription(data.sdp);
+
+    if (data.sdp.type === "offer") {
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      socket.emit("signal", { sdp: answer });
+    }
+  }
+
+  if (data.candidate) {
+    await pc.addIceCandidate(data.candidate);
+  }
+});
+
+// 💬 CHAT
+function sendMsg() {
+  if (!msgInput.value) return;
+  messages.innerHTML += `<div><b>You:</b> ${msgInput.value}</div>`;
+  socket.emit("message", msgInput.value);
+  msgInput.value = "";
+}
+
+socket.on("message", msg => {
+  messages.innerHTML += `<div><b>Stranger:</b> ${msg}</div>`;
+});
+
+// ⏭ NEXT — FIXED
+function nextUser() {
+  cleanup();
+  socket.emit("next");
+}
+
+socket.on("partnerDisconnected", () => {
+  cleanup();
+});
+
+// 🧹 CLEANUP — VERY IMPORTANT
+function cleanup() {
+  if (pc) {
+    pc.ontrack = null;
+    pc.onicecandidate = null;
+    pc.close();
+    pc = null;
+  }
+  remoteVideo.srcObject = null;
+}
